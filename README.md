@@ -1,0 +1,1 @@
+# Lojalitates_kartes
