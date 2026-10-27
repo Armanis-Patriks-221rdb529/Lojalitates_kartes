@@ -1,4 +1,4 @@
-"""Lojalitātes karšu prototips ar ciklisku karšu kaudzīti.
+"""Lojalitātes karšu prototips: cikliska kaudzīte ar ritināšanu un vilkšanu.
 
 Palaišana: python lojalitates_kartes.py
 Izmanto Python standarta bibliotēku: tkinter un json.
@@ -6,7 +6,10 @@ Izmanto Python standarta bibliotēku: tkinter un json.
 
 import json
 import random
+import re
+import time
 import tkinter as tk
+from datetime import date, datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
 
@@ -32,11 +35,17 @@ class LojalitatesKartes:
             0, 0, image=self.fons, anchor="nw"
         )
 
-        self.ekrans.bind("<Button-1>", self.klikskis)
+        # Peles ritenītis/skārienpaliktnis + karšu vilkšana (swipe).
+        # Linux izmanto Button-4/5, Windows/macOS izmanto MouseWheel.
+        self.vilksanas_sakums = None
+        self.pedejais_ritinajums = 0.0
+        self.ekrans.bind("<ButtonPress-1>", self.peles_nospiesana)
+        self.ekrans.bind("<B1-Motion>", self.peles_vilksana)
+        self.ekrans.bind("<ButtonRelease-1>", self.peles_atlaisana)
         self.ekrans.bind("<Motion>", self.peles_kustiba)
         self.ekrans.bind("<MouseWheel>", self.peles_ritenis)
-        self.ekrans.bind("<Button-4>", lambda _e: self.parslegt(-1))
-        self.ekrans.bind("<Button-5>", lambda _e: self.parslegt(1))
+        self.ekrans.bind("<Button-4>", lambda _e: self.ritinat(-1))
+        self.ekrans.bind("<Button-5>", lambda _e: self.ritinat(1))
         logs.bind("<Control-n>", lambda _e: self.pievienot_karti())
         logs.bind("<Left>", lambda _e: self.parslegt(-1))
         logs.bind("<Right>", lambda _e: self.parslegt(1))
@@ -111,6 +120,23 @@ class LojalitatesKartes:
             175, 367, text=self.isaks(dati["numurs"], 35),
             font=("Arial", 9), fill="#111111", tags="kartes"
         )
+        # Derīguma termiņu attēlojam uz kartes (vecām kartēm tas var nebūt).
+        termins = dati.get("deriguma_termins")
+        try:
+            termins_datums = date.fromisoformat(termins) if termins else None
+        except (TypeError, ValueError):
+            termins_datums = None
+        if termins_datums:
+            beigusies = termins_datums < date.today()
+            prefikss = "Beidzās:" if beigusies else "Derīga līdz:"
+            teksts = f"{prefikss} {termins_datums:%d.%m.%Y}"
+            krasa = "#9c2525" if beigusies else "#333333"
+        else:
+            teksts = "Derīguma termiņš nav norādīts"
+            krasa = "#555555"
+        c.create_text(53, 403, text=teksts, anchor="w",
+                      font=("Arial", 9), fill=krasa, tags="kartes")
+
         c.create_oval(286, 394, 304, 412,
                       outline="#555555", tags="kartes")
         c.create_text(295, 403, text="i", font=("Arial", 10), tags="kartes")
@@ -146,10 +172,10 @@ class LojalitatesKartes:
                           font=("Arial", 13, "bold"), fill="#444444",
                           tags="kartes")
             c.create_text(175, 549,
-                          text="Spied uz kartes augšā vai apakšā",
+                          text="Ritini vai velc kartes uz augšu/leju",
                           font=("Arial", 10), fill="#555555", tags="kartes")
             c.create_text(175, 571,
-                          text="vai izmanto tastatūras bultiņas ↑ ↓",
+                          text="Spied arī uz maliņām vai izmanto ↑ ↓",
                           font=("Arial", 10), fill="#555555", tags="kartes")
 
     def solis_no_klikšķa(self, x, y):
@@ -173,27 +199,94 @@ class LojalitatesKartes:
             self.pievienot_karti()
         elif not self.kartes and 130 <= x <= 225 and 292 <= y <= 396:
             self.pievienot_karti()
+        elif self.kartes and 285 <= x <= 306 and 392 <= y <= 414:
+            self.radit_informaciju()
         else:
             solis = self.solis_no_klikšķa(x, y)
             if solis:
                 self.parslegt(solis)
 
+    def peles_nospiesana(self, notikums):
+        """Atceras vietu, no kuras lietotājs sāk vilkt ar peli/pirkstu."""
+        self.vilksanas_sakums = (notikums.x, notikums.y)
+
+    def peles_vilksana(self, notikums):
+        """Vilkt drīkst kartes zonā; pārslēgšana notiek pēc atlaišanas."""
+        if self.vilksanas_sakums is None:
+            return
+        x0, y0 = self.vilksanas_sakums
+        if 35 <= x0 <= 315 and 195 <= y0 <= 490 and self.kartes:
+            self.ekrans.configure(cursor="fleur")
+
+    def peles_atlaisana(self, notikums):
+        """Pietiek ar ~40 pikseļu vertikālu vilcienu, lai mainītu karti."""
+        if self.vilksanas_sakums is None:
+            return
+        x0, y0 = self.vilksanas_sakums
+        self.vilksanas_sakums = None
+        dx, dy = notikums.x - x0, notikums.y - y0
+        kartes_zona = 35 <= x0 <= 315 and 195 <= y0 <= 490
+
+        if kartes_zona and len(self.kartes) >= 2 and abs(dy) >= 40 and abs(dy) > abs(dx):
+            # Uz augšu: nākamā karte. Uz leju: iepriekšējā.
+            # Garāks vilciens pāršķir vairākas kartes (maksimums 3).
+            skaits = min(3, max(1, round(abs(dy) / 110)))
+            self.parslegt(skaits if dy < 0 else -skaits)
+        elif abs(dx) < 12 and abs(dy) < 12:
+            # Īss klikšķis joprojām darbojas kā agrāk.
+            self.klikskis(notikums)
+        self.peles_kustiba(notikums)
+
     def peles_kustiba(self, notikums):
         x, y = notikums.x, notikums.y
         galvene = 29 <= x <= 320 and 26 <= y <= 101
         plus = not self.kartes and 130 <= x <= 225 and 292 <= y <= 396
+        info = bool(self.kartes) and 285 <= x <= 306 and 392 <= y <= 414
         self.ekrans.configure(cursor="hand2" if
-                              galvene or plus or self.solis_no_klikšķa(x, y)
+                              galvene or plus or info or self.solis_no_klikšķa(x, y)
                               else "")
 
     def peles_ritenis(self, notikums):
-        self.parslegt(-1 if notikums.delta > 0 else 1)
+        if notikums.delta:
+            self.ritinat(-1 if notikums.delta > 0 else 1)
+
+    def ritinat(self, solis):
+        """Pārslēdz vienu karti ar ritentiņu; filtrē strauju notikumu plūsmu."""
+        tagad = time.monotonic()
+        if tagad - self.pedejais_ritinajums < 0.11:
+            return
+        self.pedejais_ritinajums = tagad
+        self.parslegt(solis)
 
     def parslegt(self, solis):
         if len(self.kartes) < 2:
             return
         self.izveleta = (self.izveleta + solis) % len(self.kartes)
         self.zimet_kartes()
+
+    def radit_informaciju(self):
+        """Rāda aktīvās kartes datus, tostarp abus datumus."""
+        if not self.kartes:
+            return
+        dati = self.kartes[self.izveleta]
+
+        def radit_datumu(atslega):
+            vertiba = dati.get(atslega)
+            if not vertiba:
+                return "Nav norādīts (vecā karte)"
+            try:
+                return date.fromisoformat(vertiba).strftime("%d.%m.%Y")
+            except (TypeError, ValueError):
+                return str(vertiba)
+
+        messagebox.showinfo(
+            "Kartes informācija",
+            f"Nosaukums: {dati['nosaukums']}\n"
+            f"Numurs: {dati['numurs']}\n"
+            f"Derīga līdz: {radit_datumu('deriguma_termins')}\n"
+            f"Pievienota: {radit_datumu('pievienosanas_datums')}",
+            parent=self.logs,
+        )
 
     def pievienot_karti(self):
         forma = tk.Toplevel(self.logs)
@@ -209,30 +302,59 @@ class LojalitatesKartes:
         nosaukums.pack(fill="x", pady=(4, 13))
         ttk.Label(saturs, text="Kartes numurs:").pack(anchor="w")
         numurs = ttk.Entry(saturs, width=35)
-        numurs.pack(fill="x", pady=(4, 17))
+        numurs.pack(fill="x", pady=(4, 13))
+        ttk.Label(saturs, text="Derīguma termiņš (DD.MM.GGGG):").pack(anchor="w")
+        deriguma_termins = ttk.Entry(saturs, width=35)
+        deriguma_termins.pack(fill="x", pady=(4, 5))
+        ttk.Label(saturs, text="Piemērs: 31.12.2027").pack(anchor="w", pady=(0, 16))
 
         def saglabat():
             vards = nosaukums.get().strip()
             kods = numurs.get().strip()
-            if not vards or not kods:
-                messagebox.showwarning("Trūkst datu",
-                                       "Ievadi kartes nosaukumu un numuru!",
-                                       parent=forma)
+            termins_teksts = deriguma_termins.get().strip()
+            if not vards or not kods or not termins_teksts:
+                messagebox.showwarning(
+                    "Trūkst datu",
+                    "Ievadi kartes nosaukumu, numuru un derīguma termiņu!",
+                    parent=forma,
+                )
                 return
 
-            self.kartes.append({"nosaukums": vards, "numurs": kods})
+            try:
+                # Pārbauda precīzu formātu un to, vai datums eksistē.
+                if not re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", termins_teksts):
+                    raise ValueError("Nepareizs datuma formāts")
+                termins = datetime.strptime(termins_teksts, "%d.%m.%Y").date()
+            except ValueError:
+                messagebox.showwarning(
+                    "Nepareizs datums",
+                    "Derīguma termiņu ievadi formātā DD.MM.GGGG, "
+                    "piemēram, 31.12.2027.",
+                    parent=forma,
+                )
+                deriguma_termins.focus_set()
+                return
+
+            # Datumu, kad karte pievienota, nosaka automātiski datorā.
+            jauna_karte = {
+                "nosaukums": vards,
+                "numurs": kods,
+                "deriguma_termins": termins.isoformat(),
+                "pievienosanas_datums": date.today().isoformat(),
+            }
+            self.kartes.append(jauna_karte)
             self.izveleta = len(self.kartes) - 1
             self.zimet_kartes()
             try:
                 KARTU_FAILS.write_text(
                     json.dumps(self.kartes, ensure_ascii=False, indent=2),
-                    encoding="utf-8"
+                    encoding="utf-8",
                 )
             except OSError:
                 messagebox.showwarning(
                     "Uzmanību",
                     "Karte pievienota, bet neizdevās saglabāt failā.",
-                    parent=forma
+                    parent=forma,
                 )
             forma.destroy()
 
