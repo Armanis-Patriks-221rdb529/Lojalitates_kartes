@@ -20,6 +20,7 @@ KARTU_FAILS = MAPE / "kartes.json"
 class LojalitatesKartes:
     def __init__(self, logs):
         self.logs = logs
+        self.kartes = []
         logs.title("Lojalitātes kartes")
         logs.resizable(False, False)
         logs.configure(bg="white")
@@ -52,20 +53,25 @@ class LojalitatesKartes:
         logs.bind("<Up>", lambda _e: self.parslegt(-1))
         logs.bind("<Down>", lambda _e: self.parslegt(1))
 
+        self.kartes.append({
+                "nosaukums": "Pievienot jaunu karti",
+                "numurs": 0,
+                "deriguma_termins": datetime.strptime("01.01.0001", "%d.%m.%Y").date().isoformat(),
+                "pievienosanas_datums": datetime.strptime("01.01.0001", "%d.%m.%Y").date().isoformat(),
+        })
+
         try:
             dati = json.loads(KARTU_FAILS.read_text(encoding="utf-8"))
             if not isinstance(dati, list):
                 raise ValueError("Nederīgs karšu fails")
-            self.kartes = [
-                karte for karte in dati
-                if isinstance(karte, dict)
-                and isinstance(karte.get("nosaukums"), str)
-                and isinstance(karte.get("numurs"), str)
-            ]
+            for karte in dati:
+                if isinstance(karte, dict) and isinstance(karte.get("nosaukums"), str) and isinstance(karte.get("numurs"), str):
+                    self.kartes.append(karte)
         except (FileNotFoundError, OSError, ValueError):
-            self.kartes = []
+            pass
 
-        self.izveleta = len(self.kartes) - 1
+        self.izveleta = 0
+        
         self.zimet_kartes()
 
     @staticmethod
@@ -101,45 +107,57 @@ class LojalitatesKartes:
         dati = self.kartes[self.izveleta]
         c = self.ekrans
         self.noapaļots_taisnsturis(38, 260, 312, 426, 23, "#ababab")
-        c.create_text(
-            54, 289, text=self.isaks(dati["nosaukums"], 29),
-            anchor="w", font=("Arial", 13), fill="#222222", tags="kartes"
-        )
-
-        c.create_rectangle(53, 320, 298, 377,
-                           fill="white", outline="", tags="kartes")
-        # Svītrkods ir tikai vizuāls makets, nevis īsts EAN/Code128 kods.
-        generator = random.Random(dati["numurs"])
-        x = 60
-        while x < 290:
-            platums = generator.choice((1, 1, 2, 3, 4))
-            c.create_rectangle(x, 328, min(x + platums, 290), 355,
-                               fill="black", outline="", tags="kartes")
-            x += platums + generator.choice((1, 2, 3))
-        c.create_text(
-            175, 367, text=self.isaks(dati["numurs"], 35),
-            font=("Arial", 9), fill="#111111", tags="kartes"
-        )
-        # Derīguma termiņu attēlojam uz kartes (vecām kartēm tas var nebūt).
-        termins = dati.get("deriguma_termins")
-        try:
-            termins_datums = date.fromisoformat(termins) if termins else None
-        except (TypeError, ValueError):
-            termins_datums = None
-        if termins_datums:
-            beigusies = termins_datums < date.today()
-            prefikss = "Beidzās:" if beigusies else "Derīga līdz:"
-            teksts = f"{prefikss} {termins_datums:%d.%m.%Y}"
-            krasa = "#9c2525" if beigusies else "#333333"
+        if self.izveleta == 0:
+            c.create_text(
+                175, 289, text="Pievienot jaunu karti",
+                anchor="center", font=("Arial", 13), fill="#222222", tags="kartes"
+            )
+            c.create_text(
+                175, 344, text="+", anchor="center", font=("Arial", 52),
+                fill="#222222", tags="kartes"
+            )
+            c.create_oval(143, 312, 207, 376, outline="#222222")
+            pass
         else:
-            teksts = "Derīguma termiņš nav norādīts"
-            krasa = "#555555"
-        c.create_text(53, 403, text=teksts, anchor="w",
-                      font=("Arial", 9), fill=krasa, tags="kartes")
+            c.create_text(
+                54, 289, text=self.isaks(dati["nosaukums"], 29),
+                anchor="w", font=("Arial", 13), fill="#222222", tags="kartes"
+            )
 
-        c.create_oval(286, 394, 304, 412,
-                      outline="#555555", tags="kartes")
-        c.create_text(295, 403, text="i", font=("Arial", 10), tags="kartes")
+            c.create_rectangle(53, 320, 298, 377,
+                               fill="white", outline="", tags="kartes")
+            # Svītrkods ir tikai vizuāls makets, nevis īsts EAN/Code128 kods.
+            generator = random.Random(dati["numurs"])
+            x = 60
+            while x < 290:
+                platums = generator.choice((1, 1, 2, 3, 4))
+                c.create_rectangle(x, 328, min(x + platums, 290), 355,
+                                   fill="black", outline="", tags="kartes")
+                x += platums + generator.choice((1, 2, 3))
+            c.create_text(
+                175, 367, text=self.isaks(dati["numurs"], 35),
+                font=("Arial", 9), fill="#111111", tags="kartes"
+            )
+            # Derīguma termiņu attēlojam uz kartes (vecām kartēm tas var nebūt).
+            termins = dati.get("deriguma_termins")
+            try:
+                termins_datums = date.fromisoformat(termins) if termins else None
+            except (TypeError, ValueError):
+                termins_datums = None
+            if termins_datums:
+                beigusies = termins_datums < date.today()
+                prefikss = "Beidzās:" if beigusies else "Derīga līdz:"
+                teksts = f"{prefikss} {termins_datums:%d.%m.%Y}"
+                krasa = "#9c2525" if beigusies else "#333333"
+            else:
+                teksts = "Derīguma termiņš nav norādīts"
+                krasa = "#555555"
+            c.create_text(53, 403, text=teksts, anchor="w",
+                          font=("Arial", 9), fill=krasa, tags="kartes")
+
+            c.create_oval(286, 394, 304, 412,
+                          outline="#555555", tags="kartes")
+            c.create_text(295, 403, text="i", font=("Arial", 10), tags="kartes")
 
     def zimet_kartes(self):
         c = self.ekrans
@@ -195,9 +213,10 @@ class LojalitatesKartes:
 
     def klikskis(self, notikums):
         x, y = notikums.x, notikums.y
+        
         if 29 <= x <= 320 and 26 <= y <= 101:
             self.pievienot_karti()
-        elif not self.kartes and 130 <= x <= 225 and 292 <= y <= 396:
+        elif (self.kartes and 130 <= x <= 225 and 292 <= y <= 396) and self.izveleta == 0:
             self.pievienot_karti()
         elif self.kartes and 285 <= x <= 306 and 392 <= y <= 414:
             self.radit_informaciju()
