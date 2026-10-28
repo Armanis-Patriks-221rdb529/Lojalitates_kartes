@@ -12,10 +12,13 @@ import tkinter as tk
 from datetime import date, datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
+import os
 
 MAPE = Path(__file__).resolve().parent
 KARTU_FAILS = MAPE / "kartes.json"
 
+PLATUMS = 350
+GARUMS = 688
 
 class LojalitatesKartes:
     def __init__(self, logs):
@@ -29,7 +32,7 @@ class LojalitatesKartes:
         # noņemtas, lai aiz jaunajām kartēm nepaliktu uzzīmētās vecās.
         self.fons = tk.PhotoImage(file=MAPE / "telefons.png")
         self.tirs_fons = tk.PhotoImage(file=MAPE / "telefons_tirs.png")
-        self.ekrans = tk.Canvas(logs, width=350, height=688,
+        self.ekrans = tk.Canvas(logs, width=PLATUMS, height=GARUMS,
                                 highlightthickness=0, bg="white")
         self.ekrans.pack()
         self.fona_attels = self.ekrans.create_image(
@@ -106,7 +109,9 @@ class LojalitatesKartes:
         """Uzzīmē aktīvo karti ar tās nosaukumu un dekoratīvu svītrkodu."""
         dati = self.kartes[self.izveleta]
         c = self.ekrans
-        self.noapaļots_taisnsturis(38, 260, 312, 426, 23, "#ababab")
+        x_offset = PLATUMS * 0.12
+        y_offset = GARUMS * 0.38 
+        self.noapaļots_taisnsturis(x_offset, y_offset, PLATUMS-x_offset, GARUMS-y_offset, 23, "#ababab")
         if self.izveleta == 0:
             c.create_text(
                 175, 289, text="Pievienot jaunu karti",
@@ -120,7 +125,7 @@ class LojalitatesKartes:
             pass
         else:
             c.create_text(
-                54, 289, text=self.isaks(dati["nosaukums"], 29),
+                54, 289, text=self.isaks(dati["nosaukums"], 24),
                 anchor="w", font=("Arial", 13), fill="#222222", tags="kartes"
             )
 
@@ -158,6 +163,8 @@ class LojalitatesKartes:
             c.create_oval(286, 394, 304, 412,
                           outline="#555555", tags="kartes")
             c.create_text(295, 403, text="i", font=("Arial", 10), tags="kartes")
+            c.create_text(270, 289, text="Rediģēt", anchor="center",
+                          font=("Arial", 9), tags="kartes")
 
     def zimet_kartes(self):
         c = self.ekrans
@@ -218,7 +225,7 @@ class LojalitatesKartes:
             self.pievienot_karti()
         elif (self.kartes and 130 <= x <= 225 and 292 <= y <= 396) and self.izveleta == 0:
             self.pievienot_karti()
-        elif self.kartes and 285 <= x <= 306 and 392 <= y <= 414:
+        elif (self.kartes and 285 <= x <= 306 and 392 <= y <= 414) and not self.izveleta == 0:
             self.radit_informaciju()
         else:
             solis = self.solis_no_klikšķa(x, y)
@@ -259,10 +266,12 @@ class LojalitatesKartes:
     def peles_kustiba(self, notikums):
         x, y = notikums.x, notikums.y
         galvene = 29 <= x <= 320 and 26 <= y <= 101
-        plus = not self.kartes and 130 <= x <= 225 and 292 <= y <= 396
+        plus =  self.kartes and 130 <= x <= 225 and 292 <= y <= 396
         info = bool(self.kartes) and 285 <= x <= 306 and 392 <= y <= 414
         self.ekrans.configure(cursor="hand2" if
-                              galvene or plus or info or self.solis_no_klikšķa(x, y)
+                              galvene or (plus and self.izveleta == 0) or
+                              (info and not self.izveleta == 0) or 
+                              self.solis_no_klikšķa(x, y)
                               else "")
 
     def peles_ritenis(self, notikums):
