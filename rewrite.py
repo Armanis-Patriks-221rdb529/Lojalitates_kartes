@@ -16,7 +16,7 @@ class State(Enum):
     MAIN_SCREEN = 0
     CARD_INFO = 1
     ADD_CARD = 2
-    SETTINGS = 3
+    EDIT_CARD = 3
 
 class App:
     def __init__(self, context: tk.Tk):
@@ -31,7 +31,8 @@ class App:
                 uuid INTEGER PRIMARY KEY, 
                 card_name TEXT NOT NULL,
                 code TEXT NOT NULL,
-                date DATE
+                date DATE,
+                active BOOL DEFAULT 1
             )"""
         )
         self.cursor.execute("""
@@ -49,17 +50,16 @@ class App:
             VALUES (0, NULL, 'Pievienot Karti', '#A1A1A1')
         """)
         self.connection.commit()
-        #self.screen.create_window(WIDTH/2, 110, window=tk.Entry(self.ctx, font=("Arial", 12)), width=200, height=40, anchor="center")
         self.display_info = self.cursor.execute("SELECT color, display_name FROM card_display").fetchall()
         self.cards = self.cursor.execute("SELECT * FROM card_info").fetchall()
         self.current_index = 0
         self.current_state = State.MAIN_SCREEN
-        self.screen.bind("<Up>", lambda _: self.curr_index(1))
-        self.screen.bind("<Down>", lambda _: self.curr_index(-1))
+        self.screen.bind("<Up>", lambda _: self.change_index(1))
+        self.screen.bind("<Down>", lambda _: self.change_index(-1))
         self.update()
 
 
-    def curr_index(self, value):
+    def change_index(self, value):
         if self.current_state != State.MAIN_SCREEN:
             return
         self.current_index += value
@@ -89,8 +89,15 @@ class App:
     
     def main_screen(self):
         self.screen.focus_set()
-        self.display_info = self.cursor.execute("SELECT color, display_name FROM card_display").fetchall()
-        self.cards = self.cursor.execute("SELECT * FROM card_info").fetchall()
+        self.display_info = []
+        self.display_info.extend(self.cursor.execute("""
+            SELECT color, display_name FROM card_display WHERE display_id = 0
+        """).fetchall())
+        self.display_info.extend(self.cursor.execute("""
+            SELECT color, display_name FROM card_display
+            WHERE card_uuid IN (SELECT uuid FROM card_info WHERE active = 1)
+        """).fetchall())
+        self.cards = self.cursor.execute("SELECT * FROM card_info WHERE active = 1").fetchall()
         self.screen.create_rectangle(0, 0, 360, 80, fill="#818181", outline="#818181")
         for i in [-2, 2, -1, 1, 0]:
             card_height = 180 - (25*abs(i))
@@ -121,10 +128,16 @@ class App:
             font=("Arial", 10, "bold"),
             anchor="center"
         )
-
+        
+        self.screen.create_text(
+                    WIDTH/2, HEIGHT-200,
+                    text=f"{self.current_index+1}/{len(self.display_info)}",
+                    font=("Arial", 16, "bold"),
+                    anchor="center"
+                )
+    
     def card_info(self):
         card_info = self.cards[self.current_index-1]
-        print(card_info)
         qr_code = qr.make(card_info[2])
         rgb_qr = qr_code.convert("RGB")
         rgb_qr.thumbnail((400, 250))
@@ -145,12 +158,59 @@ class App:
             justify='center',
             anchor="center"
         )
+        self.screen.create_text(
+            WIDTH/2, 130,
+            text="Derīga līdz:",
+            font=("Arial", 16),
+            width=int(WIDTH*0.7),
+            justify='center',
+            anchor="center"
+        )
+        self.screen.create_text(
+            WIDTH/2, 180,
+            text=card_info[3],
+            font=("Arial", 20),
+            width=int(WIDTH*0.7),
+            justify='center',
+            anchor="center"
+        )
+
+        self.screen.create_window(
+            WIDTH/2, HEIGHT-240,
+            window=tk.Button(
+                self.ctx,
+                text="Dzēst",
+                font=("Arial", 18),
+                anchor='center',
+                command=lambda : (
+                    self.cursor.execute("""
+                        UPDATE card_info
+                        SET active = 0
+                        WHERE uuid = ?
+                    """, (card_info[0],)),
+                    self.connection.commit(),
+                    self.switch_state(State.MAIN_SCREEN),
+                    self.change_index(-1)
+                )
+            )
+        )
+
+        self.screen.create_window(
+            WIDTH/2, HEIGHT-180,
+            window=tk.Button(
+                self.ctx,
+                text="Rediģēt",
+                font=("Arial", 18),
+                anchor='center',
+                command=lambda: self.switch_state(State.EDIT_CARD)
+            )
+        )
         
         self.screen.create_window(
             WIDTH/2, HEIGHT-120,
             window=tk.Button(
                 self.ctx,
-                text="Atcelt",
+                text="Atpakaļ",
                 font=("Arial", 18),
                 anchor='center',
                 command=lambda: self.switch_state(State.MAIN_SCREEN)
@@ -267,15 +327,40 @@ class App:
                 self.screen.itemconfig(error_msg, text="Nepareizs krāsas formāts")
                 return
 
-            self.cursor.execute("INSERT INTO card_info (card_name, code, date) VALUES (?, ?, ?)", (card_title, card_code, valid))
+            exists = bool(self.cursor.execute("SELECT EXISTS (SELECT 1 FROM card_info WHERE card_name = ? AND code = ?)", (card_title, card_code)).fetchone()[0])
+            if exists:
+                if valid:
+                    self.cursor.execute("""
+                        UPDATE card_info
+                        SET active = 1, date = ?
+                        WHERE card_name = ? AND code = ?
+                    """, (valid, card_title, card_code))
+                else:
+                    self.cursor.execute("""
+                        UPDATE card_info
+                        SET active = 1
+                        WHERE card_name = ? AND code = ?
+                    """, (card_title, card_code))
+                card_uuid = self.cursor.lastrowid
 
-            card_uuid = self.cursor.lastrowid
-
-            self.cursor.execute("""
-                INSERT INTO card_display
-                (card_uuid, display_name, color)
-                VALUES (?, ?, ?)
-            """, (card_uuid, card_title, used_color))
+                self.cursor.execute("""
+                    UPDATE card_display
+                    SET display_name = ?, color = ?
+                    WHERE card_uuid = ?
+                """, (card_title, used_color, card_uuid))
+            else:
+                if valid:
+                    self.cursor.execute("INSERT INTO card_info (card_name, code, date) VALUES (?, ?, ?)", (card_title, card_code, valid))
+                else:
+                    self.cursor.execute("INSERT INTO card_info (card_name, code) VALUES (?, ?)", (card_title, card_code))
+                
+                card_uuid = self.cursor.lastrowid
+                
+                self.cursor.execute("""
+                    INSERT INTO card_display
+                    (card_uuid, display_name, color)
+                    VALUES (?, ?, ?)
+                """, (card_uuid, card_title, used_color))
             
             self.screen.itemconfig(error_msg, text="Karte veiksmīgi pievienota")
             title.delete(0, tk.END)
@@ -294,15 +379,197 @@ class App:
                 command=save
             )
         )
+
+        self.screen.create_window(
+            WIDTH/2, HEIGHT-130,
+            window=tk.Button(
+                self.ctx,
+                text="Pievienot no attēla",
+                font=("Arial", 18),
+                anchor='center',
+                state="disabled"
+            )
+        )
         
         self.screen.create_window(
-            WIDTH/2, HEIGHT-120,
+            WIDTH/2, HEIGHT-80,
             window=tk.Button(
                 self.ctx,
                 text="Atcelt",
                 font=("Arial", 18),
                 anchor='center',
                 command=lambda: self.switch_state(State.MAIN_SCREEN)
+            )
+        )
+
+    def edit_card(self):
+        error_msg = self.screen.create_text(
+            WIDTH/2, HEIGHT-250,
+            text="",
+            font=("Arial", 16, "bold"),
+            anchor="center",
+            tags="message"
+        )
+
+        self.screen.create_text(
+            WIDTH/2, 100,
+            text="Rediģēt Kartes Informāciju",
+            font=("Arial", 24, "bold"),
+            width= WIDTH,
+            justify="center",
+            anchor="center"
+        )
+
+        self.screen.create_text(
+                    WIDTH/2, 150,
+                    text="Nosaukums",
+                    font=("Arial", 16, "bold"),
+                    anchor="center"
+                )
+        title = tk.Entry(
+                    self.ctx,
+                    font=("Arial", 16, "normal"),
+        )
+        self.screen.create_window(
+            WIDTH/2, 200,
+            window=title,
+            tags="title"
+        )
+
+        self.screen.create_text(
+                    WIDTH/2, 250,
+                    text="Kartes informācija",
+                    font=("Arial", 16, "bold"),
+                    anchor="center"
+                )
+        code = tk.Entry(
+                    self.ctx,
+                    font=("Arial", 16, "normal"),
+        )
+        self.screen.create_window(
+            WIDTH/2, 300,
+            window=code,
+            tags="code"
+        )
+
+        self.screen.create_text(
+                    WIDTH/2, 350,
+                    text="Derīguma termiņš (formāts dd.mm.gggg)",
+                    font=("Arial", 12, "bold"),
+                    anchor="center"
+                )
+        date = tk.Entry(
+                    self.ctx,
+                    font=("Arial", 16, "normal"),
+        )
+        self.screen.create_window(
+            WIDTH/2, 400,
+            window=date,
+            tags="date"
+        )
+
+        self.screen.create_text(
+                    WIDTH/2, 450,
+                    text="Krāsa (pimēras: #ff1212)",
+                    font=("Arial", 12, "bold"),
+                    anchor="center"
+                )
+        color = tk.Entry(
+                    self.ctx,
+                    font=("Arial", 16, "normal"),
+        )
+        self.screen.create_window(
+            WIDTH/2, 500,
+            window=color,
+            tags="color"
+        )
+
+        card_info = self.cards[self.current_index-1]
+
+        title.insert(0, card_info[1])
+        code.insert(0, card_info[2])
+        date.insert(0, card_info[3] if card_info[3] else '')
+
+        color.insert(0, self.cursor.execute(
+            "SELECT color FROM card_display WHERE card_uuid = ?", (card_info[0],)
+        ).fetchone()[0])
+
+        def save(event=None):
+            card_title = title.get().strip()
+            card_code = code.get().strip()
+            card_date = date.get().strip()
+            card_color = color.get().strip()
+            if not card_title or not card_code:
+                self.screen.itemconfig(error_msg, text="Pietrūkst datu")
+                return
+
+            try:
+                if card_date == "":
+                    valid = None
+                elif re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", card_date):
+                    valid = datetime.strptime(card_date, "%d.%m.%Y").date()
+                else:
+                    raise ValueError("Nepareizs datuma formāts")
+            except ValueError:
+                self.screen.itemconfig(error_msg, text="Nepareizs datuma formāts")
+                return
+
+            try:
+                if card_color == "":
+                    used_color = "#" + hashlib.sha256(card_code.encode()).hexdigest()[:6]
+                elif re.fullmatch(r"#[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]", card_color):
+                    used_color = card_color
+                else:
+                    raise ValueError("Nepareizs krāsas formāts")
+            except ValueError:
+                self.screen.itemconfig(error_msg, text="Nepareizs krāsas formāts")
+                return
+
+            if valid:
+                self.cursor.execute("""
+                    UPDATE card_info
+                    SET card_name = ?, code = ?, date = ?
+                    WHERE uuid = ?
+                """, (card_title, card_code, valid, card_info[0]))
+            else:
+                self.cursor.execute("""
+                    UPDATE card_info
+                    SET card_name = ?, code = ?
+                    WHERE uuid = ?
+                """, (card_title, card_code, card_info[0]))
+
+            self.cursor.execute("""
+                UPDATE card_display
+                SET display_name = ?, color = ?
+                WHERE card_uuid = ?
+            """, (card_title, used_color, card_info[0]))
+            
+            self.screen.itemconfig(error_msg, text="Karte veiksmīgi pievienota")
+            title.delete(0, tk.END)
+            code.delete(0, tk.END)
+            date.delete(0, tk.END)
+            color.delete(0, tk.END)
+            return
+
+        self.screen.create_window(
+            WIDTH/2, HEIGHT-130,
+            window=tk.Button(
+                self.ctx,
+                text="Atjaunot",
+                font=("Arial", 18),
+                anchor='center',
+                command=save
+            )
+        )
+        
+        self.screen.create_window(
+            WIDTH/2, HEIGHT-80,
+            window=tk.Button(
+                self.ctx,
+                text="Atcelt",
+                font=("Arial", 18),
+                anchor='center',
+                command=lambda: self.switch_state(State.CARD_INFO)
             )
         )
 
@@ -321,6 +588,8 @@ class App:
                 self.card_info()
             case State.ADD_CARD:
                 self.add_card()
+            case State.EDIT_CARD:
+                self.edit_card()
 
         self.screen.create_window(
             WIDTH-50, 50,
