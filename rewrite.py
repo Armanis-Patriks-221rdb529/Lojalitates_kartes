@@ -1,13 +1,13 @@
 import tkinter as tk
 import sqlite3 as sq3
 import qrcode  as qr
-import barcode as bc
 import re
 import os
 import hashlib
-from datetime import date, datetime
+from datetime import datetime
 from PIL import ImageTk
 from enum import Enum
+from tkinter import ttk
 
 WIDTH = 360
 HEIGHT = 800
@@ -48,6 +48,14 @@ class App:
             INSERT OR IGNORE INTO card_display
             (display_id, card_uuid, display_name, color)
             VALUES (0, NULL, 'Pievienot Karti', '#A1A1A1')
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS card_stats (
+                card_uuid INTEGER PRIMARY KEY,
+                times_used INTEGER DEFAULT 0,
+                last_used DATE,
+                FOREIGN KEY (card_uuid) REFERENCES card_info(uuid)
+            );
         """)
         self.connection.commit()
         self.display_info = self.cursor.execute("SELECT color, display_name FROM card_display").fetchall()
@@ -138,6 +146,9 @@ class App:
     
     def card_info(self):
         card_info = self.cards[self.current_index-1]
+        card_stats = self.cursor.execute("""
+            SELECT * FROM card_stats WHERE card_uuid = ?
+        """, (card_info[0], )).fetchone()
         qr_code = qr.make(card_info[2])
         rgb_qr = qr_code.convert("RGB")
         rgb_qr.thumbnail((400, 250))
@@ -151,7 +162,7 @@ class App:
         )
         
         self.screen.create_text(
-            WIDTH/2, 100,
+            WIDTH/2, 50,
             text=card_info[1],
             font=("Arial", 24, "bold"),
             width=int(WIDTH*0.7),
@@ -159,7 +170,7 @@ class App:
             anchor="center"
         )
         self.screen.create_text(
-            WIDTH/2, 130,
+            WIDTH/2, 80,
             text="Derīga līdz:",
             font=("Arial", 16),
             width=int(WIDTH*0.7),
@@ -167,13 +178,44 @@ class App:
             anchor="center"
         )
         self.screen.create_text(
-            WIDTH/2, 180,
-            text=card_info[3],
+            WIDTH/2, 110,
+            text= datetime.strptime(card_info[3], "%Y-%m-%d").strftime("%d.%m.%Y") if card_info[3] else "Nav norādīts",
             font=("Arial", 20),
             width=int(WIDTH*0.7),
             justify='center',
             anchor="center"
         )
+        self.screen.create_text(
+            WIDTH/2, 150,
+            text=f"Reizes izmantots: {card_stats[1]}",
+            font=("Arial", 12),
+            width=int(WIDTH*0.7),
+            justify='center',
+            anchor="center"
+        )
+        self.screen.create_text(
+            WIDTH/2, 175,
+            text="Pēdējo reizi izmantota:",
+            font=("Arial", 16),
+            width=int(WIDTH*0.7),
+            justify='center',
+            anchor="center"
+        )
+        self.screen.create_text(
+            WIDTH/2, 200,
+            text = datetime.strptime(card_stats[2], "%Y-%m-%d %H:%M:%S").strftime("%d.%m.%Y %H:%M") if card_stats[2] else "Nav izmantota",
+            font=("Arial", 16),
+            width=int(WIDTH*0.7),
+            justify='center',
+            anchor="center"
+        )
+        
+
+        self.cursor.execute("""
+            UPDATE card_stats
+            SET times_used = times_used + 1, last_used = datetime('now')
+            WHERE card_uuid = ?
+        """, (card_info[0], )),
 
         self.screen.create_window(
             WIDTH/2, HEIGHT-240,
@@ -188,7 +230,6 @@ class App:
                         SET active = 0
                         WHERE uuid = ?
                     """, (card_info[0],)),
-                    self.connection.commit(),
                     self.switch_state(State.MAIN_SCREEN),
                     self.change_index(-1)
                 )
@@ -361,6 +402,12 @@ class App:
                     (card_uuid, display_name, color)
                     VALUES (?, ?, ?)
                 """, (card_uuid, card_title, used_color))
+
+            self.cursor.execute("""
+                INSERT INTO card_stats
+                (card_uuid)
+                VALUES (?)
+            """, (card_uuid,))
             
             self.screen.itemconfig(error_msg, text="Karte veiksmīgi pievienota")
             title.delete(0, tk.END)
@@ -488,7 +535,7 @@ class App:
 
         title.insert(0, card_info[1])
         code.insert(0, card_info[2])
-        date.insert(0, card_info[3] if card_info[3] else '')
+        date.insert(0, datetime.strptime(card_info[3], "%Y-%m-%d").strftime("%d.%m.%Y") if card_info[3] else '')
 
         color.insert(0, self.cursor.execute(
             "SELECT color FROM card_display WHERE card_uuid = ?", (card_info[0],)
@@ -576,6 +623,7 @@ class App:
     def switch_state(self, state):
         self.current_state = state
         print(f"state switched to: {state}")
+        self.connection.commit()
         self.update()
 
     def update(self):
@@ -603,10 +651,55 @@ class App:
     
     def debug_window(self):
         window = tk.Toplevel(self.ctx)
-        window.title = "debug"
+        window.title("Tuvākie veikali")
         window.resizable(False, False)
         window.transient(self.ctx)
         window.grab_set()
+
+        ctx = ttk.Frame(window, padding=20)
+        ctx.pack(fill="both", expand=True)
+
+        ttk.Label(
+            ctx,
+            text="Tuvākie veikali",
+            font=("Arial", 16, "bold")
+        ).pack(anchor="center")
+        ttk.Label(
+            ctx,
+            text="Pirmais (pats tuvākais)",
+            font=("Arial", 12)
+        ).pack(anchor="w")
+        first = ttk.Entry(ctx)
+        first.pack(fill='x')
+        ttk.Label(
+            ctx,
+            text="Otrais",
+            font=("Arial", 12)
+        ).pack(anchor="w")
+        first = ttk.Entry(ctx)
+        first.pack(fill='x')
+        ttk.Label(
+            ctx,
+            text="Trešais",
+            font=("Arial", 12)
+        ).pack(anchor="w")
+        first = ttk.Entry(ctx)
+        first.pack(fill='x')
+        ttk.Label(
+            ctx,
+            text="Ceturtais",
+            font=("Arial", 12)
+        ).pack(anchor="w")
+        first = ttk.Entry(ctx)
+        first.pack(fill='x')
+        ttk.Label(
+            ctx,
+            text="Piektais",
+            font=("Arial", 12)
+        ).pack(anchor="w")
+        first = ttk.Entry(ctx)
+        first.pack(fill='x')
+
 
     def on_close(self):
         self.connection.commit()
