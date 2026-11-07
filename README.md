@@ -1,6 +1,6 @@
 # Lojalitates karšu maka lietotnes prototips
 
-Prototips lojalitātes karšu maka lietotnei, kas izveidots kursam **<i>Programmatūras izstrādes tehniloģija(1) (DE0284)</i>**.
+Prototips lojalitātes karšu maka lietotnei, kas izveidots kursam **<i>Programmatūras izstrādes tehnoloģija(1) (DE0284)</i>**.
 
 ## Komanda
 Daniels Millers  
@@ -21,7 +21,7 @@ Prototipā var:
  - Rediģēt karti;
  - Dzēst karti;
  - Apskatīt statistiku;
- - Sakārtot kartes pēc "*atrašanās vietas*" un statistikas.
+ - Sakārtot kartes pēc pievienošanas, "*atrašanās vietas*", statistikas un alfabēta.
 
 ## Video
 Saite: <būs saite>

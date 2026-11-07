@@ -18,12 +18,62 @@ class State(Enum):
     ADD_CARD = 2
     EDIT_CARD = 3
 
+class Ordering(Enum):
+    NO_ORDER = 0
+    BY_LOCAT = 1
+    BY_USAGE = 2
+    BY_NAMES = 3
+
+order_queries = [
+    """SELECT *
+    FROM card_info
+    WHERE active = 1""",
+    """SELECT *
+    FROM card_info
+    WHERE active = 1""",
+    """select ci.uuid, ci.card_name, ci.code, ci.date
+    from card_info as ci,card_stats as cs
+    where ci.uuid = cs.card_uuid
+    and ci.active = 1
+    order by cs.times_used desc""",
+    """SELECT *
+    FROM card_info
+    WHERE active = 1
+    ORDER BY card_name ASC"""
+    ]
+
+display_queries = [
+    """SELECT cd.color, cd.display_name
+    FROM card_display AS cd, card_info AS ci, card_stats AS cs
+    WHERE cd.card_uuid = ci.uuid
+    AND ci.uuid = cs.card_uuid
+    AND ci.active = 1""",
+    """SELECT cd.color, cd.display_name
+    FROM card_display AS cd, card_info AS ci, card_stats AS cs
+    WHERE cd.card_uuid = ci.uuid
+    AND ci.uuid = cs.card_uuid
+    AND ci.active = 1""",
+    """SELECT cd.color, cd.display_name
+    FROM card_display AS cd, card_info AS ci, card_stats AS cs
+    WHERE cd.card_uuid = ci.uuid
+    AND ci.uuid = cs.card_uuid
+    AND ci.active = 1
+    ORDER BY cs.times_used DESC""",
+    """SELECT cd.color, cd.display_name
+    FROM card_display AS cd, card_info AS ci, card_stats AS cs
+    WHERE cd.card_uuid = ci.uuid
+    AND ci.uuid = cs.card_uuid
+    AND ci.active = 1
+    ORDER BY ci.card_name ASC"""
+]
+
 class App:
     def __init__(self, context: tk.Tk):
         self.ctx = context
         self.screen = tk.Canvas(context, width=WIDTH, height=HEIGHT)
         self.screen.pack()
         self.screen.focus_set()
+
         self.connection = sq3.connect("database.db")
         self.cursor = self.connection.cursor()
         self.cursor.execute("""
@@ -58,12 +108,15 @@ class App:
             );
         """)
         self.connection.commit()
-        self.display_info = self.cursor.execute("SELECT color, display_name FROM card_display").fetchall()
-        self.cards = self.cursor.execute("SELECT * FROM card_info").fetchall()
+        
         self.current_index = 0
         self.current_state = State.MAIN_SCREEN
+        self.ordering = Ordering.NO_ORDER
+        self.priority = []
+        
         self.screen.bind("<Up>", lambda _: self.change_index(1))
         self.screen.bind("<Down>", lambda _: self.change_index(-1))
+        
         self.update()
 
 
@@ -97,15 +150,40 @@ class App:
     
     def main_screen(self):
         self.screen.focus_set()
+
         self.display_info = []
         self.display_info.extend(self.cursor.execute("""
             SELECT color, display_name FROM card_display WHERE display_id = 0
         """).fetchall())
-        self.display_info.extend(self.cursor.execute("""
-            SELECT color, display_name FROM card_display
-            WHERE card_uuid IN (SELECT uuid FROM card_info WHERE active = 1)
-        """).fetchall())
-        self.cards = self.cursor.execute("SELECT * FROM card_info WHERE active = 1").fetchall()
+        if self.ordering == Ordering.BY_LOCAT and not len(self.priority) == 0:
+            self.display_info.extend(
+                self.cursor.execute(
+                    display_queries[0]
+                ).fetchall()
+            )
+            self.cards = self.cursor.execute(
+                order_queries[0]
+            ).fetchall()
+
+            self.cards.sort(
+                key=lambda x: self.priority.index(x[1])
+                if x[1] in self.priority else 999
+            )
+            self.display_info[1:] = sorted(
+                self.display_info[1:],
+                key=lambda x: self.priority.index(x[1])
+                if x[1] in self.priority else 999
+            )
+        else:
+            self.display_info.extend(
+                self.cursor.execute(
+                    display_queries[self.ordering.value]
+                ).fetchall()
+            )
+            self.cards = self.cursor.execute(
+                order_queries[self.ordering.value]
+            ).fetchall()
+        
         self.screen.create_rectangle(0, 0, 360, 80, fill="#818181", outline="#818181")
         for i in [-2, 2, -1, 1, 0]:
             card_height = 180 - (25*abs(i))
@@ -129,26 +207,35 @@ class App:
                         tags=f"karte_({i})"
                     )
             self.screen.tag_bind(f"karte_({i})", "<Button-1>", lambda e: self.clicked_on_card())
-
-        self.screen.create_text(
-            WIDTH/2, 100,
-            text=self.current_index,
-            font=("Arial", 10, "bold"),
-            anchor="center"
-        )
         
         self.screen.create_text(
-                    WIDTH/2, HEIGHT-200,
-                    text=f"{self.current_index+1}/{len(self.display_info)}",
-                    font=("Arial", 16, "bold"),
-                    anchor="center"
-                )
+            WIDTH/2, HEIGHT-200,
+            text=f"{self.current_index+1}/{len(self.display_info)}",
+            font=("Arial", 16, "bold"),
+            anchor="center"
+        )
+
+        def inc_enum():
+            self.ordering = Ordering((self.ordering.value + 1)%4)
+            self.update()
+        
+        self.screen.create_window(
+            50, 100,
+            window=tk.Button(
+                self.ctx,
+                text=self.ordering.name,
+                font=("Ariel", 10),
+                anchor='w',
+                command=inc_enum
+            )
+        )
     
     def card_info(self):
         card_info = self.cards[self.current_index-1]
         card_stats = self.cursor.execute("""
             SELECT * FROM card_stats WHERE card_uuid = ?
         """, (card_info[0], )).fetchone()
+
         qr_code = qr.make(card_info[2])
         rgb_qr = qr_code.convert("RGB")
         rgb_qr.thumbnail((400, 250))
@@ -216,7 +303,7 @@ class App:
             SET times_used = times_used + 1, last_used = datetime('now')
             WHERE card_uuid = ?
         """, (card_info[0], )),
-
+        
         self.screen.create_window(
             WIDTH/2, HEIGHT-240,
             window=tk.Button(
@@ -676,30 +763,50 @@ class App:
             text="Otrais",
             font=("Arial", 12)
         ).pack(anchor="w")
-        first = ttk.Entry(ctx)
-        first.pack(fill='x')
+        second = ttk.Entry(ctx)
+        second.pack(fill='x')
         ttk.Label(
             ctx,
             text="Trešais",
             font=("Arial", 12)
         ).pack(anchor="w")
-        first = ttk.Entry(ctx)
-        first.pack(fill='x')
+        third = ttk.Entry(ctx)
+        third.pack(fill='x')
         ttk.Label(
             ctx,
             text="Ceturtais",
             font=("Arial", 12)
         ).pack(anchor="w")
-        first = ttk.Entry(ctx)
-        first.pack(fill='x')
+        forth = ttk.Entry(ctx)
+        forth.pack(fill='x')
         ttk.Label(
             ctx,
             text="Piektais",
             font=("Arial", 12)
         ).pack(anchor="w")
-        first = ttk.Entry(ctx)
-        first.pack(fill='x')
+        fifth = ttk.Entry(ctx)
+        fifth.pack(fill='x')
 
+        def save(event=None):
+            self.priority = []
+            if first.get().strip() != '':
+                self.priority.append(first.get().strip())
+            if second.get().strip() != '':
+                self.priority.append(second.get().strip())
+            if third.get().strip() != '':
+                self.priority.append(third.get().strip())
+            if forth.get().strip() != '':
+                self.priority.append(forth.get().strip())
+            if fifth.get().strip() != '':
+                self.priority.append(fifth.get().strip())
+            self.ordering = Ordering.BY_LOCAT
+            self.update()
+            
+        ttk.Button(
+            ctx,
+            text="Saglabat",
+            command=save
+        ).pack(anchor='center')
 
     def on_close(self):
         self.connection.commit()
