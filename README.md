@@ -24,4 +24,4 @@ Prototipā var:
  - Sakārtot kartes pēc pievienošanas, "*atrašanās vietas*", statistikas un alfabēta.
 
 ## Video
-Saite: <būs saite>
+Saite: https://rtucloud1-my.sharepoint.com/:v:/r/personal/daniels_millers_1_edu_rtu_lv/_layouts/15/stream.aspx?id=%2Fpersonal%2Fdaniels%5Fmillers%5F1%5Fedu%5Frtu%5Flv%2FDocuments%2Fprototipa%2Emp4&share=cQpuyPKLp9knRrd76Q3uCAupEgUCdyFyTvlkZQ126JNwqann8Q

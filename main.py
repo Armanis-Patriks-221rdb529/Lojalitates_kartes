@@ -410,7 +410,7 @@ class App:
 
         self.screen.create_text(
                     WIDTH/2, 450,
-                    text="Krāsa (pimēras: #ff1212)",
+                    text="Krāsa (piemēras: #ff1212)",
                     font=("Arial", 12, "bold"),
                     anchor="center"
                 )
@@ -455,35 +455,42 @@ class App:
                 self.screen.itemconfig(error_msg, text="Nepareizs krāsas formāts")
                 return
 
-            exists = bool(self.cursor.execute("SELECT EXISTS (SELECT 1 FROM card_info WHERE card_name = ? AND code = ?)", (card_title, card_code)).fetchone()[0])
-            if exists:
-                if valid:
-                    self.cursor.execute("""
-                        UPDATE card_info
-                        SET active = 1, date = ?
-                        WHERE card_name = ? AND code = ?
-                    """, (valid, card_title, card_code))
-                else:
-                    self.cursor.execute("""
-                        UPDATE card_info
-                        SET active = 1
-                        WHERE card_name = ? AND code = ?
-                    """, (card_title, card_code))
-                card_uuid = self.cursor.lastrowid
+            existing_card = self.cursor.execute("""
+                SELECT uuid
+                FROM card_info
+                WHERE card_name = ? AND code = ?
+                LIMIT 1
+            """, (card_title, card_code)).fetchone()
+
+            if existing_card is not None:
+                card_uuid = existing_card[0]
+
+                self.cursor.execute("""
+                    UPDATE card_info
+                    SET active = 1, date = ?
+                    WHERE uuid = ?
+                """, (valid, card_uuid))
 
                 self.cursor.execute("""
                     UPDATE card_display
                     SET display_name = ?, color = ?
                     WHERE card_uuid = ?
                 """, (card_title, used_color, card_uuid))
+
+                if self.cursor.rowcount == 0:
+                    self.cursor.execute("""
+                        INSERT INTO card_display
+                        (card_uuid, display_name, color)
+                        VALUES (?, ?, ?)
+                    """, (card_uuid, card_title, used_color))
             else:
-                if valid:
-                    self.cursor.execute("INSERT INTO card_info (card_name, code, date) VALUES (?, ?, ?)", (card_title, card_code, valid))
-                else:
-                    self.cursor.execute("INSERT INTO card_info (card_name, code) VALUES (?, ?)", (card_title, card_code))
-                
+                self.cursor.execute("""
+                    INSERT INTO card_info (card_name, code, date)
+                    VALUES (?, ?, ?)
+                """, (card_title, card_code, valid))
+
                 card_uuid = self.cursor.lastrowid
-                
+
                 self.cursor.execute("""
                     INSERT INTO card_display
                     (card_uuid, display_name, color)
@@ -491,8 +498,7 @@ class App:
                 """, (card_uuid, card_title, used_color))
 
             self.cursor.execute("""
-                INSERT INTO card_stats
-                (card_uuid)
+                INSERT OR IGNORE INTO card_stats (card_uuid)
                 VALUES (?)
             """, (card_uuid,))
             
@@ -604,7 +610,7 @@ class App:
 
         self.screen.create_text(
                     WIDTH/2, 450,
-                    text="Krāsa (pimēras: #ff1212)",
+                    text="Krāsa (piemēram: #ff1212)",
                     font=("Arial", 12, "bold"),
                     anchor="center"
                 )
@@ -730,7 +736,7 @@ class App:
             WIDTH-50, 50,
             window=tk.Button(
                 self.ctx,
-                text="DEBUG",
+                text="Tuvākie veikali",
                 anchor='w',
                 command=self.debug_window
             )
